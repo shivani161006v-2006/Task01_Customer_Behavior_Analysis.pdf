@@ -1,0 +1,41 @@
+# 1. Convert 'Purchase Date' into actual datetime objects
+df['Purchase Date'] = pd.to_datetime(df['Purchase Date'])
+
+# 2. Set our reference date (1 day after latest purchase in the data)
+snapshot_date = df['Purchase Date'].max() + pd.Timedelta(days=1)
+
+# 3. Group by Customer ID to calculate Recency, Frequency, and Monetary values
+rfm = df.groupby('Customer ID').agg({
+    'Purchase Date': lambda x: (snapshot_date - x.max()).days, 
+    'Customer ID': 'count',                                    
+    'Total Purchase Amount': 'sum'                             
+})
+
+# Rename columns for clarity
+rfm.rename(columns={'Purchase Date': 'Recency', 'Customer ID': 'Frequency', 'Total Purchase Amount': 'Monetary'}, inplace=True)
+
+# 4. Break scores down into quintiles (1 to 5)
+rfm['R_Score'] = pd.qcut(rfm['Recency'], 5, labels=[5, 4, 3, 2, 1])
+rfm['F_Score'] = pd.qcut(rfm['Frequency'].rank(method='first'), 5, labels=[1, 2, 3, 4, 5])
+rfm['M_Score'] = pd.qcut(rfm['Monetary'], 5, labels=[1, 2, 3, 4, 5])
+
+# Combine individual scores into an RFM cell string
+rfm['RFM_cell'] = rfm['R_Score'].astype(str) + rfm['F_Score'].astype(str) + rfm['M_Score'].astype(str)
+
+# 5. Define customer behavior labels
+def assign_segments(row):
+    if row['RFM_cell'] in ['555', '554', '545', '544']:
+        return 'Champions (Best Customers)'
+    elif row['R_Score'] == 5:
+        return 'New Customers'
+    elif row['R_Score'] in [1, 2] and row['F_Score'] in [4, 5]:
+        return 'At-Risk / Churn Risk'
+    elif row['R_Score'] in [1, 2] and row['F_Score'] in [1, 2]:
+        return 'Lost / Hibernating'
+    else:
+        return 'Regular Customers'
+
+rfm['Segment'] = rfm.apply(assign_segments, axis=1)
+
+# Show the new segmented customer table
+rfm.head()
